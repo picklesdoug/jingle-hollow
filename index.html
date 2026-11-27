@@ -421,7 +421,7 @@ function flatMask(x,z){
 }
 function hillAmp(x,z){const inMap=x>=0&&z>=0&&x<VW&&z<VH;if(!inMap)return 2.6;const r=regionAt(Math.round(x),Math.round(z));
   return{north:2.6,pine:3,glade:1.3,candy:1.2,lake:1.4,ski:1.6,grove:1}[r]||0;}
-function baseHeight(x,z){
+function baseHeight0(x,z){
   let h=Math.max(0,fbm(x*.04,z*.04)-.28)*hillAmp(x,z)*2.2;
   const dOut=Math.max(0,1-x,x-(VW-2),1-z,z-(VH-2));
   const border=20*sstep(0,28,dOut)+(fbm(x*.06+30,z*.06)-.5)*8*sstep(0,10,dOut);
@@ -431,15 +431,18 @@ function baseHeight(x,z){
   const ski=rough*(1-rm)+cone*rm;
   return Math.max(h,border,ski);
 }
+// summit plateau: lift top, warming lodge and the start gate all sit on one flat shelf
+const HUT=(()=>{const a=Math.atan2(LIFT[1][1]-PEAK[1],LIFT[1][0]-PEAK[0])+.3;return[PEAK[0]+Math.cos(a)*37,PEAK[1]+Math.sin(a)*37];})();
+const TOP_PAD=LIFT[1];
+const SUMMIT=(()=>{const P=[TOP_PAD,HUT,RUN_PTS[0]];const cx=(P[0][0]+P[1][0]+P[2][0])/3,cz=(P[0][1]+P[1][1]+P[2][1])/3;const r=Math.max(...P.map(p=>Math.hypot(p[0]-cx,p[1]-cz)))+5;return{x:cx,z:cz,r};})();
+const SUMMIT_H=baseHeight0(SUMMIT.x,SUMMIT.z)-4;
+function baseHeight(x,z){const h=baseHeight0(x,z),d=Math.hypot(x-SUMMIT.x,z-SUMMIT.z);if(d>SUMMIT.r+16)return h;const w=1-sstep(SUMMIT.r,SUMMIT.r+16,d);return h*(1-w)+SUMMIT_H*w;}
 const RUN_H=(()=>{const a=RUN.pts.map(([x,z])=>baseHeight(x,z)*(1-flatMask(x,z)));for(let i=1;i<a.length;i++)a[i]=Math.max(0,Math.min(a[i],a[i-1]-.04));return a;})();
 // warming lodge at the top of the chairlift (on a little flat shelf)
-const HUT=(()=>{const a=Math.atan2(LIFT[1][1]-PEAK[1],LIFT[1][0]-PEAK[0])+.3;return[PEAK[0]+Math.cos(a)*37,PEAK[1]+Math.sin(a)*37];})();
-const HUT_H=baseHeight(HUT[0],HUT[1]);
-const TOP_PAD=LIFT[1];
+const HUT_H=SUMMIT_H;
 function rawHeight(x,z){
   let h=baseHeight(x,z);
   if(inRunBox(x,z,12)){const [i,d]=nearRun(x,z);if(d<RUN_HALF+7){const w=1-sstep(RUN_HALF+.8,RUN_HALF+6,d);h=h*(1-w)+RUN_H[i]*w;}}
-  {const d=Math.hypot(x-HUT[0],z-HUT[1]);if(d<11){const w=1-sstep(5,10,d);h=h*(1-w)+HUT_H*w;}}
   return h*(1-flatMask(x,z));
 }
 // two height grids: fine (1 unit) over the playable map, coarse (2 units) over the far mountains
@@ -841,26 +844,39 @@ function buildVillage(){
   const R=rngSeed(77),dummy=new T.Object3D(),col=new T.Color();
   const pathT=[],iceT=[],waterT=[];
   for(let y=0;y<VH;y++)for(let x=0;x<VW;x++){const v=m.tiles[y*VW+x];if(v===1||v===6)pathT.push([x,y]);if(v===4)iceT.push([x,y]);if(v===11)waterT.push([x,y]);}
-  // walkways: 2-wide roads get big 2x2 stone slabs; single paths get little cobbles
-  {const isP=(x,y)=>{if(x<0||y<0||x>=VW||y>=VH)return false;const v=m.tiles[y*VW+x];return v===1;};const used=new Uint8Array(VW*VH),slabs=[],cob=[];
-   for(let y=0;y<VH-1;y++)for(let x=0;x<VW-1;x++){if(used[y*VW+x]||!isP(x,y))continue;if(isP(x+1,y)&&isP(x,y+1)&&isP(x+1,y+1)&&!used[y*VW+x+1]&&!used[(y+1)*VW+x]&&!used[(y+1)*VW+x+1]){used[y*VW+x]=used[y*VW+x+1]=used[(y+1)*VW+x]=used[(y+1)*VW+x+1]=1;slabs.push([x+.5,y+.5]);}}
-   for(const [x,y] of pathT)if(!used[y*VW+x])cob.push([x,y]);
+  // walkways: 2-wide roads = big 2x2 stone slabs (1x1 where a 2x2 won't fit); single paths = a soft, natural gravel trail
+  {const isP=(x,y)=>x>=0&&y>=0&&x<VW&&y<VH&&m.tiles[y*VW+x]===1,isD=(x,y)=>x>=0&&y>=0&&x<VW&&y<VH&&m.tiles[y*VW+x]===6;
+   const wide=new Uint8Array(VW*VH);for(let y=0;y<VH-1;y++)for(let x=0;x<VW-1;x++)if(isP(x,y)&&isP(x+1,y)&&isP(x,y+1)&&isP(x+1,y+1))wide[y*VW+x]=wide[y*VW+x+1]=wide[(y+1)*VW+x]=wide[(y+1)*VW+x+1]=1;
+   const used=new Uint8Array(VW*VH),slabs=[],small=[],grav=[];const W=(x,y)=>x>=0&&y>=0&&x<VW&&y<VH&&wide[y*VW+x]&&!used[y*VW+x];
+   for(let y=0;y<VH-1;y++)for(let x=0;x<VW-1;x++)if(W(x,y)&&W(x+1,y)&&W(x,y+1)&&W(x+1,y+1)){used[y*VW+x]=used[y*VW+x+1]=used[(y+1)*VW+x]=used[(y+1)*VW+x+1]=1;slabs.push([x+.5,y+.5]);}
+   for(const [x,y] of pathT){const i=y*VW+x;if(m.tiles[i]!==1)continue;if(wide[i]){if(!used[i])small.push([x,y]);}else grav.push([x,y]);}
    const tint=(c,x,y)=>{const r=regionAt(Math.round(x),Math.round(y));if(r==='glade')c.set('#c8a06a');else if(r==='candy')c.set('#ffb8d8');else if(r==='village'||r==='park')c.set('#c2b4a6');else c.set('#d8d2c8');c.offsetHSL((R()-.5)*.02,0,(R()-.5)*.09);};
-   const sm=new T.InstancedMesh(BOX(1.9,.07,1.9),new T.MeshStandardMaterial({color:'#ffffff',roughness:.9,flatShading:true}),slabs.length);sm.receiveShadow=true;sm.frustumCulled=false;
-   slabs.forEach(([x,y],i)=>{dummy.position.set(x,gH(x,y)+.025,y);dummy.rotation.set(0,(R()-.5)*.03,0);dummy.scale.set(1,1,1);dummy.updateMatrix();sm.setMatrixAt(i,dummy.matrix);tint(col,x,y);sm.setColorAt(i,col);});
-   if(slabs.length){sm.instanceColor.needsUpdate=true;sc.add(sm);}
-   // single paths: soft natural gravel. Overlapping jittered patches share world-space UVs, so they blend into one wobbly path.
-   const groups={};for(const [x,y] of cob){const r=regionAt(x,y),k=r==='glade'?'dirt':r==='candy'?'pink':(r==='village'||r==='park')?'town':'snow';(groups[k]=groups[k]||[]).push([x,y]);}
-   const GCOL={dirt:['#c49a64','#9a7448','#e0c090'],pink:['#ffc4dc','#f094bc','#fff0f6'],town:['#b8aa9a','#8a7c70','#e2d8cc'],snow:['#cfc6ba','#9a9084','#efe9e0']};
-   for(const k in groups){const list=groups[k],pos=[],uv=[],GR=rngSeed(k.length*99);
-     for(const [x,y] of list){const q=[[-.66,-.66],[.66,-.66],[.66,.66],[-.66,.66]].map(([ox,oz])=>[x+ox+(GR()-.5)*.3,y+oz+(GR()-.5)*.3]);
-       const V=i=>{const [vx,vz]=q[i];pos.push(vx,gH(vx,vz)+.022,vz);uv.push(vx/2.5,vz/2.5);};V(0);V(3);V(1);V(1);V(3);V(2);}
-     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setAttribute('uv',new T.Float32BufferAttribute(uv,2));g.computeVertexNormals();
-     const mat=new T.MeshStandardMaterial({map:gravelTex(GCOL[k]),roughness:1,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
-     const mesh=new T.Mesh(g,mat);mesh.receiveShadow=true;mesh.frustumCulled=false;mesh.renderOrder=1;sc.add(mesh);}
-   // door steps keep a single flat stone
-   const dm=new T.InstancedMesh(BOX(.9,.06,.9),new T.MeshStandardMaterial({color:'#b8b0a8',roughness:.9}),Math.max(1,pathT.length));let dn=0;dm.frustumCulled=false;
-   for(const [x,y] of pathT)if(m.tiles[y*VW+x]===6){dummy.position.set(x,gH(x,y)+.02,y);dummy.rotation.set(0,0,0);dummy.updateMatrix();dm.setMatrixAt(dn++,dummy.matrix);}dm.count=dn;sc.add(dm);}
+   const smat=new T.MeshStandardMaterial({color:'#ffffff',roughness:.9,flatShading:true});
+   for(const [list,sz] of[[slabs,1.9],[small,.92]]){if(!list.length)continue;const im=new T.InstancedMesh(BOX(sz,.07,sz),smat,list.length);im.receiveShadow=true;im.frustumCulled=false;
+     list.forEach(([x,y],i)=>{dummy.position.set(x,gH(x,y)+.025,y);dummy.rotation.set(0,0,0);dummy.scale.set(1,1,1);dummy.updateMatrix();im.setMatrixAt(i,dummy.matrix);tint(col,x,y);im.setColorAt(i,col);});im.instanceColor.needsUpdate=true;sc.add(im);}
+   // door steps: one flat stone each
+   {const ds=pathT.filter(([x,y])=>isD(x,y));if(ds.length){const dm=new T.InstancedMesh(BOX(.9,.06,.9),new T.MeshStandardMaterial({color:'#b8b0a8',roughness:.9}),ds.length);dm.frustumCulled=false;ds.forEach(([x,y],i)=>{dummy.position.set(x,gH(x,y)+.02,y);dummy.rotation.set(0,0,0);dummy.updateMatrix();dm.setMatrixAt(i,dummy.matrix);});sc.add(dm);}}
+   // gravel mask: round blobs + thick lines to every connected path tile, then blurred for soft edges
+   const PX=8,cv=document.createElement('canvas');cv.width=VW*PX;cv.height=VH*PX;const g2=cv.getContext('2d');g2.lineCap='round';g2.lineJoin='round';const GR=rngSeed(5150);
+   const regCol=(x,y)=>{const r=regionAt(x,y);return r==='glade'?'#c49a64':r==='candy'?'#ffc4dc':(r==='village'||r==='park')?'#bcae9e':'#d2c8bc';};
+   const C=(v)=>(v+.5)*PX;
+   for(const [x,y] of grav){const c=regCol(x,y);g2.fillStyle=c;g2.strokeStyle=c;
+     g2.beginPath();g2.arc(C(x)+(GR()-.5)*1.5,C(y)+(GR()-.5)*1.5,PX*(.5+GR()*.12),0,7);g2.fill();
+     for(const [dx,dy] of[[1,0],[0,1],[-1,0],[0,-1]]){const nx=x+dx,ny=y+dy;if(!(isP(nx,ny)||isD(nx,ny)))continue;g2.lineWidth=PX*(.95+GR()*.2);g2.beginPath();g2.moveTo(C(x),C(y));g2.lineTo(C(nx)-dx*PX*.1,C(ny)-dy*PX*.1);g2.stroke();}
+     // round off stair-steps on diagonal bends
+     for(const [dx,dy] of[[1,1],[1,-1],[-1,1],[-1,-1]]){const nx=x+dx,ny=y+dy;if(!isP(nx,ny)||wide[ny*VW+nx])continue;if(isP(x+dx,y)||isP(x,y+dy)){g2.lineWidth=PX*.9;g2.beginPath();g2.moveTo(C(x),C(y));g2.lineTo(C(nx),C(ny));g2.stroke();}}}
+   const cv2=document.createElement('canvas');cv2.width=cv.width;cv2.height=cv.height;const g3=cv2.getContext('2d');g3.filter='blur(1.6px)';g3.drawImage(cv,0,0);
+   const mask=new T.CanvasTexture(cv2);mask.flipY=false;
+   // decal mesh over just the cells the gravel touches, matching the terrain triangles exactly
+   const cells=new Set();for(const [x,y] of grav)for(let j=y-1;j<=y;j++)for(let i=x-1;i<=x;i++)cells.add(i+','+j);
+   const pos=[],uv=[];const V=(x,z)=>{pos.push(x,gH(x,z)+.03,z);uv.push(x/2.5,z/2.5);};
+   for(const k of cells){const [i,j]=k.split(',').map(Number);V(i,j);V(i,j+1);V(i+1,j);V(i+1,j);V(i,j+1);V(i+1,j+1);}
+   const gg=new T.BufferGeometry();gg.setAttribute('position',new T.Float32BufferAttribute(pos,3));gg.setAttribute('uv',new T.Float32BufferAttribute(uv,2));gg.computeVertexNormals();
+   const gmat=new T.MeshStandardMaterial({map:gravelTex(['#e6e6e6','#a8a8a8','#ffffff']),roughness:1,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2});
+   gmat.onBeforeCompile=sh=>{sh.uniforms.maskMap={value:mask};sh.uniforms.maskSize={value:new T.Vector2(VW,VH)};
+     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform vec2 maskSize;\nvarying vec2 vMaskUv;').replace('#include <begin_vertex>','#include <begin_vertex>\nvMaskUv=(position.xz+0.5)/maskSize;');
+     sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D maskMap;\nvarying vec2 vMaskUv;').replace('#include <map_fragment>','#include <map_fragment>\n{vec4 mk=texture2D(maskMap,vMaskUv);diffuseColor.rgb*=mk.rgb;diffuseColor.a*=smoothstep(0.08,0.6,mk.a);}');};
+   const gm=new T.Mesh(gg,gmat);gm.receiveShadow=true;gm.frustumCulled=false;gm.renderOrder=1;gm.userData.dyn=true;sc.add(gm);}
   buildLakeMesh(sc);
   const wm=new T.InstancedMesh(BOX(1,.04,1),new T.MeshStandardMaterial({color:'#3a9ad8',roughness:.05,metalness:.2,transparent:true,opacity:.92}),waterT.length);wm.receiveShadow=true;wm.frustumCulled=false;
   waterT.forEach(([x,y],i)=>{dummy.position.set(x,.01,y);dummy.updateMatrix();wm.setMatrixAt(i,dummy.matrix);});sc.add(wm);
@@ -972,7 +988,9 @@ const INTERIORS={
   cafe:{title:'Summit Cafe',w:9,h:7,trim:'#5a3420',floor:'#a8784a',wall:'#c09060',furn:[['fire',1,1],['counter',4,2],['counter',5,2],['oven',6,1],['dtable',2,4],['dtable',6,4],['carpet',4,4],['xtree',7,1]],npcs:[['mocha',4,1],['skier2',2,5]]},
   chalet1:{title:"Snowflake's Chalet",w:9,h:7,trim:'#5a3420',floor:'#a8784a',wall:'#c8a070',furn:[['fire',4,1],['bed',1,1],['skis',7,1],['table',6,4],['rug',4,4],['plant',1,5]],npcs:[['snowflake',4,3]]},
   chalet2:{title:"Powder's Chalet",w:9,h:7,trim:'#5a3420',floor:'#a8784a',wall:'#b88a5a',furn:[['fire',4,1],['bed',7,1],['toys',1,1],['skis',1,4],['rug',4,4],['table',6,5]],npcs:[['powder',4,3]]},
-  warmhut:{title:'Warming Lodge',w:9,h:7,wall:'#a87048',trim:'#5a3420',floor:'#8a5a36',skiDoor:true,furn:[['fire',4,1],['skis',1,1],['skis',2,1],['counter',6,2],['counter',7,2],['bench',1,4],['bench',2,4],['bench',6,5],['bench',7,5],['rug',4,4],['xtree',7,1]],npcs:[['ranger',7,1]]},
+  warmhut:{title:'Summit Warming Lodge',w:11,h:8,wall:'#a87048',trim:'#5a3420',floor:'#8a5a36',skiDoor:true,
+    furn:[['fire',1,1],['skis',3,1],['skis',4,1],['shelf',7,1],['shelf',8,1],['xtree',10,1],['counter',6,3],['counter',7,3],['counter',8,3],['counter',9,3],['stool',6,4],['stool',8,4],['stool',9,4],
+      ['dtable',1,4],['dtable',3,4],['dtable',1,6],['dtable',3,6],['carpet',5,5],['bench',9,6],['chand',5,3]],npcs:[['bartender',7,2],['ranger',2,2],['skier3',3,5]]},
   candy:{title:'Candy Shop',w:9,h:7,wall:'#ffd0e4',trim:'#e8243a',floor:'#f0c8d8',furn:[['jars',3,2],['jars',4,2],['jars',5,2],['lollis',1,1],['lollis',7,1],['lollis',1,5],['lollis',7,5],['carpet',4,4]],npcs:[['gumball',4,1]]},
   icecream:{title:'Ice Cream Parlor',w:9,h:7,wall:'#e8f6ff',trim:'#ff8ab8',floor:'#f6e8d8',furn:[['tubs',3,2],['tubs',4,2],['tubs',5,2],['bigcone',1,1],['bigcone',7,1],['dtable',1,4],['dtable',7,4],['carpet',4,4]],npcs:[['scoop',4,1],['sprinkle2',7,5]]},
   frost:{title:"Frost's House",w:9,h:7,trim:'#6a4428',floor:'#b08a5a',wall:'#d8ecfa',furn:[['fire',4,1],['bed',1,1],['shelf',7,1],['table',6,4],['rug',4,4],['plant',1,5]],npcs:[['frost',4,3]]},
@@ -1011,7 +1029,7 @@ function buildInterior(key){
   for(let i=0;i<d.w*3;i++){const x=.5+i/3,y=1.9-Math.abs(Math.sin(i/3*Math.PI/2))*.18;add(sc,SPH(.07,6,5),M('#1f6b3a'),x-.5,y,.55,false);if(i%3===0)add(sc,SPH(.045,6,5),TWINKLE[i%5],x-.5,y-.07,.6,false);}
   for(let y=0;y<d.h;y++)for(let x=0;x<d.w;x++)if(y===0||x===0||x===d.w-1||(y===d.h-1&&(par||x!==dx)))m.solid[y*d.w+x]=1;
   for(const [t,x,y] of d.furn){const g=new T.Group();g.position.set(x,0,y);(FURN[t]||FURN2[t])(g,m);sc.add(g);
-    if(!['rug','carpet','chand'].includes(t)){m.solid[y*d.w+x]=1;if(t==='bed'||t==='hutbed'){m.solid[(y+1)*d.w+x]=1;m.beds.add(x+','+y);m.beds.add(x+','+(y+1));}}
+    if(!['rug','carpet','chand','stool'].includes(t)){m.solid[y*d.w+x]=1;if(t==='bed'||t==='hutbed'){m.solid[(y+1)*d.w+x]=1;m.beds.add(x+','+y);m.beds.add(x+','+(y+1));}}
     if(['counter','cake','bread','gb','tubs','jars'].includes(t))m.counters.add(x+','+y);}
   if(d.stairs){const [sx,sy]=d.stairs,g=new T.Group();g.position.set(sx,0,sy);FURN2.stairs(g);sc.add(g);m.doors[sx+','+sy]={to:key+'_up',x:sx,y:sy+1,dir:'down',stairs:true};}
   if(par){const [sx,sy]=d.hole,g=new T.Group();g.position.set(sx,0,sy);FURN2.hole(g);sc.add(g);m.doors[sx+','+sy]={to:par,x:sx,y:sy+1,dir:'down',stairs:true};m.entry={x:sx,y:sy+1,dir:'down'};}
@@ -1072,6 +1090,8 @@ Object.assign(NPC_DEFS,{
   skier2:{name:'Brisk',make:()=>makePerson({body:'#f08ab0',hat:'beanie',hatColor:'#ffffff',ears:true,legs:'#3a3a4a',scale:.72})},
   snowflake:{name:'Snowflake',make:()=>makePerson({body:'#e8f4ff',hat:'beanie',hatColor:'#5ac8ff',hair:'#f0e0a0',ears:true,legs:'#3a6ad8'})},
   powder:{name:'Powder',make:()=>makePerson({body:'#7a4ad0',hat:'beanie',hatColor:'#f2c443',ears:true,legs:'#2a2a3a',scale:.7})},
+  bartender:{name:'Cocoa Carl',make:()=>makePerson({body:'#7a3a2a',apron:'#ffffff',beard:true,ears:true,hat:'beanie',hatColor:'#e8243a',legs:'#2a2a33'})},
+  skier3:{name:'Flurry Jr.',make:()=>makePerson({body:'#3a8ad8',hat:'beanie',hatColor:'#f2c443',ears:true,legs:'#2a2a3a',scale:.72})},
   ranger:{name:'Ranger Fir',make:()=>makePerson({body:'#2f6a42',hat:'beanie',hatColor:'#e8243a',scarf:'#f2c443',beard:true,ears:true,legs:'#4a3a2a'})},
   gumball:{name:'Gumball',make:()=>makePerson({body:'#ff6aa8',apron:'#ffffff',hat:'beanie',hatColor:'#5ac8ff',ears:true,hair:'#7a3b1e',legs:'#e8243a'})},
   scoop:{name:'Scoop',make:()=>makePerson({body:'#ffffff',apron:'#8ad8ff',hat:'chef',ears:true,hair:'#e0a050',legs:'#ff8ab8'})},
@@ -1257,7 +1277,9 @@ const TALK={
   skier2(){return["Hi! I am Brisk.","I went down the big hill 3 times!","Now I need cocoa. Brrr!"];},
   snowflake(){return["Hi! I am Snowflake.","I ski every day.","Watch out for the trees!"];},
   powder(){return["Hi! I am Powder.","I want to ski fast, fast, fast!","Do the big jumps. Wheee!"];},
-  ranger(){afterTalk=()=>choice('Want some hot cocoa?',[{label:'Yes, please!',fn:()=>say(['Here you go! It is nice and warm.'],()=>doAct('drink','cocoa'),'Ranger Fir')},{label:'No, thank you.'}]);return["Hi! I am Ranger Fir.","Brrr! It is cold up here.","Warm up by the fire.","When you are ready, go out the door to ski!"];},
+  bartender(){afterTalk=()=>choice('What can I get you?',[['cocoa','Hot Cocoa'],['cocoa','Cocoa with Marshmallows'],['cookie','Candy Cane Cookie'],['gingerbread','Gingerbread Man'],['turkey','Turkey Dinner'],['cake','Christmas Cake']].map(([k,n])=>({label:n,fn:()=>say([`One ${n}! Enjoy!`],()=>doAct(k==='cocoa'?'drink':'eat',k),'Cocoa Carl')})).concat([{label:'No, thank you.'}]));return["Welcome to the top! I am Cocoa Carl.","I have hot cocoa and yummy food.","It is all free for skiers!"];},
+  skier3(){return["Hi! I am Flurry Jr.","This hill is SO big!","I need a cookie before I go down."];},
+  ranger(){afterTalk=()=>choice('Want some hot cocoa?',[{label:'Yes, please!',fn:()=>say(['Here you go! It is nice and warm.'],()=>doAct('drink','cocoa'),'Ranger Fir')},{label:'No, thank you.'}]);return["Hi! I am Ranger Fir.","Brrr! It is cold up here.","Warm up by the fire.","Go out the door. Then ski to the START flags!"];},
   gumball(){afterTalk=candyMenu;return["Hi! I am Gumball. Welcome!","Candy makes you fast! Zoom!","Eat it from your BAG."];},
   scoop(){afterTalk=iceMenu;return["Hello! I am Scoop.","I make the best ice cream in town!","Pick a flavor!"];},
   sprinkle2(){return["Hi! I am Dot.","I love ice cream with sprinkles!","Brrr! My head is cold. Hee hee!"];},
@@ -1712,7 +1734,7 @@ function update(dt){
     if(curMap.swing&&!(player.ride&&player.ride.type==='swing'))curMap.swing.userData.seats.forEach((s,i)=>s.rotation.x=Math.sin(time*1.2+i)*.05);
     for(const pf of curMap.puffs){pf.userData.t=(pf.userData.t+dt*.25)%1;const t=pf.userData.t,o=pf.userData.o;pf.position.set(o.x+Math.sin(t*5)*.15+t*.5,o.y+t*1.6,o.z);pf.scale.setScalar(.5+t*1.4);pf.material.opacity=.55*(1-t);}
     for(const tp of curMap.trail){if(tp.life>0){tp.life-=dt;tp.s.material.opacity=Math.max(0,tp.life)*.8;tp.s.position.y-=dt*.4;if(tp.life<=0)tp.s.visible=false;}}
-    const sunA=S.tod*Math.PI*2;sun.position.set(camTarget.x+Math.cos(sunA)*8,16,camTarget.z+6+Math.sin(sunA)*3);sun.target.position.copy(camTarget);
+    const sunA=S.tod*Math.PI*2;sun.position.set(camTarget.x+Math.cos(sunA)*8,camTarget.y+16,camTarget.z+6+Math.sin(sunA)*3);sun.target.position.copy(camTarget);
     playerLight.position.set(flight.on?flight.x:player.model.position.x,(flight.on?flight.y:0)+2,flight.on?flight.z:player.model.position.z);
     if(fireworksT>0){fireworksT-=dt;fwAcc+=dt;if(fwAcc>.45){fwAcc=0;burst();}}
     for(let i=bursts.length-1;i>=0;i--){const b=bursts[i];b.life+=dt;const a=b.pts.geometry.attributes.position.array;
@@ -1854,6 +1876,15 @@ function makeSkiHill(scene){
   // finish arch
   {const [x1,z1]=runPoint(RUN.len-4,-RUN_HALF),[x2,z2]=runPoint(RUN.len-4,RUN_HALF);for(const [x,z] of[[x1,z1],[x2,z2]])add(scene,CYL(.1,.1,2.6,8),M('#e8243a'),x,gH(x,z)+1.3,z);
     const mx=(x1+x2)/2,mz=(z1+z2)/2,b=add(scene,BOX(Math.hypot(x2-x1,z2-z1),.5,.12),M('#e8243a'),mx,gH(mx,mz)+2.6,mz);b.rotation.y=-Math.atan2(z2-z1,x2-x1);}
+  // start gate on the summit
+  {const [x1,z1]=runPoint(3,-RUN_HALF+.4),[x2,z2]=runPoint(3,RUN_HALF-.4);for(const [x,z] of[[x1,z1],[x2,z2]])add(scene,CYL(.12,.12,3.2,8),M('#3a6ad8'),x,gH(x,z)+1.6,z);
+   const cv=document.createElement('canvas');cv.width=512;cv.height=96;const c=cv.getContext('2d');c.fillStyle='#e8243a';c.fillRect(0,0,512,96);c.fillStyle='#ffffff';c.font='bold 64px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('START',256,52);
+   const mx=(x1+x2)/2,mz=(z1+z2)/2,wd=Math.hypot(x2-x1,z2-z1),bn=new T.Mesh(new T.PlaneGeometry(wd,1),new T.MeshBasicMaterial({map:new T.CanvasTexture(cv),side:T.DoubleSide}));bn.position.set(mx,gH(mx,mz)+2.8,mz);bn.rotation.y=-Math.atan2(z2-z1,x2-x1);scene.add(bn);
+   // little fence of flags around the summit edge
+   for(let a=0;a<Math.PI*2;a+=.16){const x=SUMMIT.x+Math.cos(a)*(SUMMIT.r-.4),z=SUMMIT.z+Math.sin(a)*(SUMMIT.r-.4);if(distRun(x,z)<RUN_HALF+1)continue;add(scene,CYL(.04,.04,.8,5),M(((a*6)|0)%2?'#e8243a':'#f2c443'),x,gH(x,z)+.4,z);}
+   // picnic tables outside the lodge
+   for(const [ox,oz] of[[-3,4.5],[3,4.5]]){const rot=Math.atan2(TOP_PAD[0]-HUT[0],TOP_PAD[1]-HUT[1]),x=HUT[0]+Math.cos(rot)*ox+Math.sin(rot)*oz,z=HUT[1]-Math.sin(rot)*ox+Math.cos(rot)*oz;const t=new T.Group();t.position.set(x,gH(x,z),z);t.rotation.y=rot;scene.add(t);
+     add(t,BOX(1.4,.08,.7),M('#8a5a36'),0,.7,0);for(const sz of[-.6,.6])add(t,BOX(1.4,.06,.25),M('#7a4a2a'),0,.42,sz);for(const sx of[-.6,.6])add(t,BOX(.08,.7,.08),M('#5a3a22'),sx,.35,0);add(t,BOX(1.3,.05,.6),M('#ffffff',{roughness:1}),0,.76,0);}}
   // warming lodge at the top
   {const nb=BULBS.length,h={key:'warmhut',x:0,y:0,w:5,h:4,wall:'#8a5a36',roof:'#c8423a',log:true,wallH:1.6};h.doorX=2;h.doorY=3;const g=makeHouse(h);BULBS.length=nb;
    g.position.set(HUT[0],HUT_H,HUT[1]);g.rotation.y=Math.atan2(TOP_PAD[0]-HUT[0],TOP_PAD[1]-HUT[1]);scene.add(g);
@@ -1884,6 +1915,7 @@ function makeGroveDecor(scene){
   const base=pts.slice();ANIM.push(t=>{const a=fg.attributes.position.array;for(let i=0;i<a.length;i+=3){a[i]=base[i]+Math.sin(t*.7+i)*.3;a[i+1]=base[i+1]+Math.sin(t*1.3+i*2)*.2;a[i+2]=base[i+2]+Math.cos(t*.6+i)*.3;}fg.attributes.position.needsUpdate=true;crystal.rotation.y=t*.5;cg.material.opacity=.55+Math.sin(t*2)*.15;});
 }
 const FURN2={
+  stool(g){add(g,CYL(.17,.17,.08,10),M('#c8423a'),0,.55,0);add(g,CYL(.04,.04,.55,6),M('#3a3a44'),0,.27,0);add(g,CYL(.16,.16,.03,10),M('#3a3a44'),0,.02,0);},
   tubs(g){add(g,BOX(.95,.8,.7),M('#ffffff'),0,.4,0);add(g,BOX(.97,.08,.72),M('#ff8ab8'),0,.82,0);const gl=new T.MeshStandardMaterial({color:'#dff4ff',transparent:true,opacity:.35,roughness:.1});add(g,BOX(.9,.3,.05),gl,0,1,.33,false);
     ['#ffb8d8','#8a4a2a','#a8f0c8','#fff4c8'].forEach((c,i)=>{add(g,BOX(.2,.08,.3),M('#c8ccd6'),-.33+i*.22,.86,0);add(g,SPH(.09,8,6),M(c),-.33+i*.22,.9,0);});},
   jars(g){add(g,BOX(.95,.8,.7),M('#f8e0ec'),0,.4,0);add(g,BOX(.97,.06,.72),M('#e8243a'),0,.82,0);
@@ -2187,7 +2219,7 @@ const MG={on:false,kind:'',scene:null,cam:new T.PerspectiveCamera(50,1,.1,300),s
     $('hud').style.display='none';$('banner').classList.remove('show');$('toast').classList.remove('show');$('mgHud').style.display='flex';$('mgEnd').style.display='none';
     $('mgHelp').innerHTML=kind==='skate'?(isTouch?'⛸ Skate on the lake!<br>Arrows = skate<br>A = JUMP &nbsp; B = SPIN<br>Skate into the stars!':'⛸ Skate on the lake!<br>Arrow keys = skate<br>SPACE = JUMP &nbsp; X = SPIN<br>Skate into the stars!'):(isTouch?'🚡 Ride the ski lift up the hill!<br>Tap SKIP to skip the ride.<br>Then ski all the way down.<br>Steer with the arrows.<br>Go through flags! Get coins!<br>A = JUMP &nbsp; B = SLOW DOWN':'🚡 Ride the ski lift up the hill!<br>Tap SKIP to skip the ride.<br>Then ski all the way down.<br>Steer with the arrows.<br>Go through flags! Get coins!<br>SPACE = JUMP &nbsp; X = SLOW DOWN');
     $('mgHelp').style.display='block';this.help=kind==='ski'?5:2.8;this.updHud();},
-  updHud(){$('mgScore').textContent='SCORE '+this.score;$('skipBtn').style.display=this.kind==='ski'&&SKI.phase==='lift'?'block':'none';$('mgTime').textContent=this.kind==='ski'?(SKI.phase==='lift'?'SKI LIFT':SKI.phase==='top'?'TOP!':SKI.phase==='ready'?'GET READY':'RUN '+Math.round(Math.min(100,SKI.s/(RUN.len-4)*100))+'%'):'TIME '+Math.ceil(Math.max(0,this.time));},
+  updHud(){$('mgScore').textContent='SCORE '+this.score;$('skipBtn').style.display=this.kind==='ski'&&SKI.phase==='lift'?'block':'none';$('mgTime').textContent=this.kind==='ski'?(SKI.phase==='lift'?'SKI LIFT':SKI.phase==='summit'?'SUMMIT':SKI.phase==='ready'?'GET READY':'RUN '+Math.round(Math.min(100,SKI.s/(RUN.len-4)*100))+'%'):'TIME '+Math.ceil(Math.max(0,this.time));},
   pop(t){const e=$('mgPop');e.textContent=t;e.classList.remove('show');void e.offsetWidth;e.classList.add('show');},
   update(dt){if(!this.world)time+=dt;if(this.help>0){this.help-=dt;if(this.help<=0)$('mgHelp').style.display='none';}
     if(this.kind==='skate')SKATE.update(dt);else SKI.update(dt);this.updHud();},
@@ -2197,7 +2229,7 @@ const MG={on:false,kind:'',scene:null,cam:new T.PerspectiveCamera(50,1,.1,300),s
     $('mgEnd').style.display='grid';sfx.bell();},
   exit(silent){if(this.kind==='skate')SKATE.cleanup();else SKI.cleanup();$('fade').style.opacity=0;this.on=false;this.world=false;$('mgHud').style.display='none';$('mgEnd').style.display='none';$('mgHelp').style.display='none';$('hud').style.display='flex';
     if(!silent){const r=this.ret,m=maps[r.map];setMap(m,r.x,r.y,r.dir);}},
-  pressA(){if(this.ended){this.exit();return;}if(this.help>0){this.help=0;$('mgHelp').style.display='none';return;}if(this.kind==='ski'&&SKI.phase==='lift'){SKI.lt=Math.max(SKI.lt,.999);return;}if(this.kind==='ski'&&SKI.phase==='top'){SKI.askTop();return;}if(this.kind==='skate')SKATE.jump();else SKI.jump();},
+  pressA(){if(this.ended){this.exit();return;}if(this.help>0){this.help=0;$('mgHelp').style.display='none';return;}if(this.kind==='ski'&&SKI.phase==='lift'){SKI.lt=Math.max(SKI.lt,.999);return;}if(this.kind==='skate')SKATE.jump();else SKI.jump();},
   pressB(){if(this.ended){this.exit();return;}if(this.kind==='skate')SKATE.spin();else SKI.brake=.6;},
 };
 function mgInput(){let ix=0,iy=0;if(touchVec){ix=touchVec[0];iy=touchVec[1];}else for(const d of held){ix+=DIRS[d][0];iy+=DIRS[d][1];}return[ix,iy];}
@@ -2264,16 +2296,26 @@ const SKI={view:'top',
     if(!this.chair){const c=new T.Group();c.userData.dyn=true;add(c,CYL(.012,.012,.6,4),M('#333'),0,.3,0,false);add(c,BOX(.5,.05,.45),M('#e8243a'),0,0,0);add(c,BOX(.5,.4,.05),M('#e8243a'),0,.18,-.22);add(c,BOX(.05,.05,.5),M('#333'),.24,.12,0);m.scene.add(c);this.chair=c;}
     setMap(m,LODGE_FRONT[0],LODGE_FRONT[1],'up');$('banner').classList.remove('show');player.act=null;
     this.gear=[];this.lt=0;this.top();this.camPos=null;
-    if(this.fromTop){this.fromTop=false;this.chair.visible=false;this.beginRun();}else{this.chair.visible=true;this.phase='lift';}$('viewBtn').style.display='block';
+    if(this.fromTop){this.fromTop=false;const [x,z,rot]=this.hutDoor();this.toSummit(x+Math.sin(rot)*2.6,z+Math.cos(rot)*2.6,rot);}else{this.chair.visible=true;this.phase='lift';}$('viewBtn').style.display='block';
   },
   equip(){const u=player.model.userData;if(this.gear.length)return;u.legs.forEach(l=>this.gear.push(add(l,BOX(.07,.03,.9),M('#e8243a'),0,-.31,.12,false)));u.arms.forEach(a=>this.gear.push(add(a,CYL(.012,.012,.8,4),M('#888'),0,-.35,0,false)));
     [660,990].forEach((f,i)=>tone(f,.05,'square',.04,i*.12));MG.pop('Skis on! Click, click!');},
-  arriveTop(){this.phase='top';this.chair.visible=false;const p=player.model,[x,z]=TOP_PAD;p.position.set(x,gH(x,z),z);p.rotation.set(0,0,0);const u=p.userData;u.legs.forEach(l=>l.rotation.x=0);u.arms.forEach(a=>{a.rotation.x=0;});
-    [523,659,784].forEach((f,i)=>tone(f,.1,'square',.03,i*.08));
-    setTimeout(()=>this.askTop(),350);},
-  askTop(){if(choiceOpen||this.phase!=='top')return;choice('You are at the top! What now?',[{label:'☕ Warm up in the lodge',fn:()=>goWarmHut()},{label:'⛷ Ski down now!',fn:()=>SKI.beginRun()}]);},
-  beginRun(){this.top();this.phase='ready';this.readyT=1.6;const p=player.model,[x,z]=runPoint(1,0),r=runAt(1);p.position.set(x,gH(x,z),z);p.rotation.set(0,Math.atan2(r.tx,r.tz),0);this.camPos=null;
-    setTimeout(()=>this.equip(),250);},
+  hutDoor(){const rot=Math.atan2(TOP_PAD[0]-HUT[0],TOP_PAD[1]-HUT[1]);return[HUT[0]+Math.sin(rot)*2.9,HUT[1]+Math.cos(rot)*2.9,rot];},
+  startGate(){return runPoint(3,0);},
+  toSummit(x,z,head){this.phase='summit';this.chair.visible=false;this.view='top';this.camPos=null;this.px=x;this.pz=z;this.vx=0;this.vz=0;this.head=head;this.equip();
+    const p=player.model;p.position.set(x,gH(x,z),z);p.rotation.set(0,head,0);MG.pop('Ski to the START flags to go down!');setTimeout(()=>{if(this.phase==='summit')MG.pop('Or ski into the lodge to warm up!');},2600);},
+  arriveTop(){const [x,z]=TOP_PAD,dx=SUMMIT.x-x,dz=SUMMIT.z-z,l=Math.hypot(dx,dz)||1;[523,659,784].forEach((f,i)=>tone(f,.1,'square',.03,i*.08));this.toSummit(x+dx/l*3,z+dz/l*3,Math.atan2(dx,dz));},
+  summitUpdate(dt){const p=player.model,u=p.userData,[ix,iy]=mgInput();let tx=0,tz=0;
+    if(this.view==='chase'){this.head-=ix*dt*2.6;const f=Math.max(0,-iy);tx=Math.sin(this.head)*f*5;tz=Math.cos(this.head)*f*5;}else{const l=Math.max(1,Math.hypot(ix,iy));tx=ix/l*5.5;tz=iy/l*5.5;}
+    this.vx+=(tx-this.vx)*Math.min(1,dt*3);this.vz+=(tz-this.vz)*Math.min(1,dt*3);let nx=this.px+this.vx*dt,nz=this.pz+this.vz*dt;
+    const push=(cx,cz,r)=>{const d=Math.hypot(nx-cx,nz-cz);if(d<r){nx=cx+(nx-cx)/(d||1)*r;nz=cz+(nz-cz)/(d||1)*r;}};push(HUT[0],HUT[1],3.3);push(TOP_PAD[0],TOP_PAD[1],1.8);
+    {const d=Math.hypot(nx-SUMMIT.x,nz-SUMMIT.z),R=SUMMIT.r-1;if(d>R){nx=SUMMIT.x+(nx-SUMMIT.x)/d*R;nz=SUMMIT.z+(nz-SUMMIT.z)/d*R;}}
+    this.px=nx;this.pz=nz;const sp=Math.hypot(this.vx,this.vz);if(sp>.4&&this.view!=='chase')this.head=Math.atan2(this.vx,this.vz);
+    p.position.set(nx,gH(nx,nz),nz);p.rotation.set(0,this.head,0);player.rot=this.head;
+    const w=Math.sin(time*7)*Math.min(1,sp/3);u.legs.forEach((l,i)=>l.rotation.x=(i?w:-w)*.4);u.arms.forEach((a,i)=>{a.rotation.x=(i?-w:w)*.7-.2;a.rotation.z=(i?-1:1)*.2;});
+    const [dx,dz]=this.hutDoor();if(Math.hypot(nx-dx,nz-dz)<1.1){this.phase='done';goWarmHut();return;}
+    const [gx,gz]=this.startGate();if(Math.hypot(nx-gx,nz-gz)<3){this.beginRun();}},
+  beginRun(){this.top();this.phase='ready';this.readyT=.9;this.view='chase';const p=player.model,[x,z]=runPoint(1,0),r=runAt(1);p.position.set(x,gH(x,z),z);p.rotation.set(0,Math.atan2(r.tx,r.tz),0);this.camPos=null;this.equip();MG.pop('Ready...');},
   top(){this.s=1;this.u=0;this.v=2;this.vu=0;this.air=0;this.crash=0;this.brake=0;this.gates=new Set();this.ramps=new Set();this.done=false;
     this.coins.forEach(c=>{c.visible=true;for(let k=0;k<20;k++){const s=8+Math.random()*(RUN.len-20),u=(Math.random()*2-1)*(RUN_HALF-.8);
       if(!SKI_TREES.some(([ts,tu])=>Math.abs(ts-s)<2&&Math.abs(tu-u)<1.5)){const [x,z]=runPoint(s,u);c.position.set(x,gH(x,z)+.5,z);c.userData.s=s;c.userData.u=u;break;}}});},
@@ -2288,7 +2330,8 @@ const SKI={view:'top',
       u.legs.forEach(l=>l.rotation.x=-1.4+Math.sin(time*3)*.15);u.arms.forEach((a,i)=>{a.rotation.x=-.3;a.rotation.z=(i?-1:1)*.2;});
       if(k>=1)this.arriveTop();
       MG.updHud();return;}
-    if(this.phase==='top'){MG.updHud();return;}
+    if(this.phase==='summit'){this.summitUpdate(dt);MG.updHud();return;}
+    if(this.phase==='done'&&!MG.ended){MG.updHud();return;}
     if(this.phase==='ready'){this.readyT-=dt;u.legs.forEach(l=>l.rotation.x=-.3);u.arms.forEach((a,i)=>{a.rotation.x=-.4;a.rotation.z=(i?-1:1)*.25;});
       if(this.readyT<=0){this.phase='ski';this.v=2;MG.pop('GO! Ski down!');[523,659,784,1046].forEach((f,i)=>tone(f,.12,'square',.04,i*.08));}MG.updHud();return;}
     const [ix0,iy0]=mgInput();const r=runAt(this.s);let ix=ix0;if(this.view!=='chase'){const l=Math.hypot(ix0,iy0)||1;ix=(ix0*r.nx+iy0*r.nz)/Math.max(1,l);}
@@ -2316,12 +2359,14 @@ const SKI={view:'top',
     const p=player.model.position;let want,look;
     if(this.phase==='lift'){const dir=new T.Vector3(LIFT[1][0]-LIFT[0][0],0,LIFT[1][1]-LIFT[0][1]).normalize();const side=new T.Vector3(-dir.z,0,dir.x);
       want=p.clone().addScaledVector(dir,-5).addScaledVector(side,-3).add(new T.Vector3(0,3,0));look=p.clone().addScaledVector(dir,3);}
+    else if(this.phase==='summit'&&this.view==='chase'){const d=new T.Vector3(Math.sin(this.head),0,Math.cos(this.head));want=p.clone().addScaledVector(d,-7).add(new T.Vector3(0,4.6,0));look=p.clone().addScaledVector(d,4);look.y+=.6;}
+    else if(this.phase==='summit'){look=p.clone();look.y+=.4;want=look.clone().add(new T.Vector3(0,12,8.6));if(isTouch&&camera.aspect<1)want.y+=3;}
     else if(this.view!=='chase'){const r=runAt(this.s);look=p.clone().add(new T.Vector3(r.tx*2.5,.4,r.tz*2.5));want=look.clone().add(new T.Vector3(0,13,9.4));if(isTouch&&camera.aspect<1)want.y+=3;}
-    else{const r=runAt(this.s);const d=new T.Vector3(r.tx,0,r.tz);want=p.clone().addScaledVector(d,-5.5).add(new T.Vector3(0,4.6,0));look=p.clone().addScaledVector(d,5);look.y=gH(look.x,look.z)+.5;
+    else{const r=runAt(this.s);const d=new T.Vector3(r.tx,0,r.tz);want=p.clone().addScaledVector(d,-7.6).add(new T.Vector3(0,5.6,0));look=p.clone().addScaledVector(d,5);look.y=gH(look.x,look.z)+.5;
       const gy=gH(want.x,want.z)+1.5;if(want.y<gy)want.y=gy;}
     {const l=p.clone();l.y+=.6;for(let it=0;it<8;it++){let worst=0;for(let t=.2;t<=1.001;t+=.2){const x=l.x+(want.x-l.x)*t,z=l.z+(want.z-l.z)*t,y=l.y+(want.y-l.y)*t,g=gH(x,z)+.9;if(g>y)worst=Math.max(worst,(g-y)/t);}if(worst<=0)break;want.y+=worst;}}
     if(!this.camPos){this.camPos=want.clone();this.camLook=look.clone();}
-    this.camPos.lerp(want,Math.min(1,dt*3));this.camLook.lerp(look,Math.min(1,dt*4));
+    this.camPos.lerp(want,Math.min(1,dt*5));this.camLook.lerp(look,Math.min(1,dt*4));
     camera.position.copy(this.camPos);camera.lookAt(this.camLook);camTarget.copy(p);
   }
 };
