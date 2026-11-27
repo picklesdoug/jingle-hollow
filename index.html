@@ -94,7 +94,7 @@ body.touch .keys{display:none}
 
 <div id="hud">
   <div id="bells" class="box"><span class="lbl" style="margin-right:4px">BELLS</span><div class="bell">🔔</div><div class="bell">🔔</div><div class="bell">🔔</div><div class="bell">🔔</div><span id="clock">☀️</span></div>
-  <div id="hudBtns"><button class="hbtn box" id="optBtn" aria-label="Options" style="font-family:sans-serif;font-size:15px;padding:7px 10px">⚙</button><button class="hbtn box" id="gearBtn" style="display:none">GO</button><button class="hbtn box" id="bagBtn">BAG</button><button class="hbtn box" id="mapBtn">MAP</button><button class="hbtn box" id="questBtn">QUESTS</button></div>
+  <div id="hudBtns"><button class="hbtn box" id="optBtn" aria-label="Options" style="font-family:sans-serif;font-size:15px;padding:7px 10px">⚙</button><button class="hbtn box" id="bagBtn">BAG</button><button class="hbtn box" id="mapBtn">MAP</button><button class="hbtn box" id="questBtn">QUESTS</button></div>
 </div>
 <div id="banner" class="box"></div>
 <div id="toast" class="box"></div>
@@ -266,10 +266,11 @@ const ITEMS=[
   {id:'flo4',x:30,y:90,type:'flower',q:'flowers',color:0xff8a3a},{id:'flo5',x:68,y:92,type:'flower',q:'flowers',color:0xffffff},{id:'flo6',x:44,y:79,type:'flower',q:'flowers',color:0xff3a3a},
   {id:'fea1',x:35,y:6,type:'feather',q:'feathers'},{id:'fea2',x:14,y:13,type:'feather',q:'feathers'},{id:'fea3',x:90,y:24,type:'feather',q:'feathers'},{id:'fea4',x:76,y:64,type:'feather',q:'feathers'},
   {id:'star',x:48,y:4,type:'star',q:'star'},
-  {id:'snowmobile',x:62,y:3,type:'snowmobile',q:'gear'},{id:'xcskis',x:24,y:61,type:'xcskis',q:'gear'},
+{id:'xcskis',x:24,y:61,type:'xcskis',q:'gear'},
 ];
 ITEMS.forEach(i=>{i.x=sc(i.x);i.y=sc(i.y);});
 const SPARKLES=[[48,15],[30,26],[71,20],[71,45],[48,66],[25,45],[61,6],[36,6]].map(SP);
+const SLED_HOME=SP([62,3]);
 const START={map:'pip',x:2,y:3,dir:'down'};
 const TOWN_START=[74,70];
 let COINS=[];
@@ -343,7 +344,7 @@ function genVillage(){
    for(const k of Object.keys(SIGNS)){const [x,y]=k.split(',').map(Number),n=nudge(x,y);if(n[0]!==x||n[1]!==y){SIGNS[n[0]+','+n[1]]=SIGNS[k];delete SIGNS[k];}taken.add(n+'');}}
   const reserved=new Set();
   const res=(x,y)=>{reserved.add(x+','+y);if(treeish(get(x,y)))set(x,y,0);};
-  ITEMS.forEach(i=>res(i.x,i.y));Object.values(OUT_NPCS).forEach(([x,y])=>res(x,y));
+  ITEMS.forEach(i=>res(i.x,i.y));res(SLED_HOME[0],SLED_HOME[1]);Object.values(OUT_NPCS).forEach(([x,y])=>res(x,y));
   LAMPS.forEach(([x,y])=>res(x,y));Object.keys(SIGNS).forEach(k=>{const [x,y]=k.split(',').map(Number);res(x,y);});
   const objs=objsAll();
   for(let y=BONFIRE[1]-1;y<=BONFIRE[1]+1;y++)for(let x=BONFIRE[0]-1;x<=BONFIRE[0]+1;x++)objs.push([x,y]);
@@ -502,7 +503,7 @@ try{Object.assign(OPT,JSON.parse(localStorage.getItem('jh-opt2')||'{}'));}catch(
 function saveOpt(){try{localStorage.setItem('jh-opt2',JSON.stringify(OPT));}catch(e){}}
 const SAVE_KEY='jingle-hollow-save-v2';
 const QKEYS=['ornaments','toys','cookies','carrots','star','gifts','candy','mittens','friend','logs','carols','sparkles','gems','ducks','flowers','feathers'];
-function freshState(){const q={};QKEYS.forEach(k=>q[k]={st:0,n:0});return{candy:{},gear:{},gearOn:'',bells:0,santaIntro:false,hasStar:false,starPlaced:false,cookiesDelivered:false,sleigh:false,flown:false,superElf:false,
+function freshState(){const q={};QKEYS.forEach(k=>q[k]={st:0,n:0});return{candy:{},gear:{},gearOn:'',sledAt:SLED_HOME.slice(),bells:0,santaIntro:false,hasStar:false,starPlaced:false,cookiesDelivered:false,sleigh:false,flown:false,superElf:false,
   q,collected:{},met:{},gifts:{},sung:{},tod:.1,map:START.map,x:START.x,y:START.y,dir:START.dir,ver:4,coins:10,foundGrove:false,sleighAt:SLEIGH_PAD.slice(),
   outfit:{hat:'h_elf_red',coat:'c_green',pants:'p_red',scarf:'s_gold'},owned:{h_elf_red:true,c_green:true,p_red:true,s_gold:true},best:{skate:0,ski:0},t:0};}
 let S=freshState();
@@ -1322,9 +1323,10 @@ const player={x:START.x,y:START.y,dir:'down',moving:false,fx:0,fy:0,tx:0,ty:0,t:
 const STEP=.2;
 let curMap=null,busy=false,region='',bumpT=0;
 function npcAt(m,x,y){return m.npcs.find(n=>n.x===x&&n.y===y);}
-function walkable(m,x,y){if(x<0||y<0||x>=m.w||y>=m.h)return false;if(m.solid[y*m.w+x])return false;return!npcAt(m,x,y);}
+function walkable(m,x,y){if(x<0||y<0||x>=m.w||y>=m.h)return false;if(m.solid[y*m.w+x])return false;if(m===maps.village){if(S.sledAt&&S.sledAt[0]===x&&S.sledAt[1]===y)return false;if(riding()&&m.tiles[y*m.w+x]===11)return false;}return!npcAt(m,x,y);}
 function dirRot(d){const [dx,dy]=DIRS[d];return Math.atan2(dx,dy);}
 function setMap(m,x,y,dir){
+  if(riding()&&curMap===maps.village&&m!==maps.village){const onDoor=curMap.doors[player.x+','+player.y];parkSled(onDoor&&player.fx!=null?player.fx:player.x,onDoor&&player.fy!=null?player.fy:player.y);}
   curMap=m;m.scene.add(player.model);player.model.visible=true;player.x=x;player.y=y;player.dir=dir;player.moving=false;
   player.rot=dirRot(dir);player.model.rotation.set(0,player.rot,0);player.model.position.set(x,0,y);player.model.scale.setScalar(1);
   snapCam=true;
@@ -1363,6 +1365,7 @@ function pickup(it){
 function facing(){const [dx,dy]=DIRS[player.dir];return[player.x+dx,player.y+dy];}
 function interact(){
   const [fx,fy]=facing(),k=fx+','+fy,[dx,dy]=DIRS[player.dir];
+  if(curMap===maps.village&&S.sledAt&&S.sledAt[0]===fx&&S.sledAt[1]===fy){getOnSled();return;}
   let npc=npcAt(curMap,fx,fy);
   if(!npc&&curMap.counters.has(k))npc=npcAt(curMap,fx+dx,fy+dy);
   if(npc){
@@ -1428,7 +1431,7 @@ const flight={on:false,phase:'',t:0,x:0,z:0,y:0,vx:0,vz:0,head:0,lx:0,lz:0,trail
 let sleighTile=null;
 function placeSleigh(t){const m=maps.village;if(sleighTile)m.solid[sleighTile[1]*VW+sleighTile[0]]=0;sleighTile=t;if(t){S.sleighAt=t;m.solid[t[1]*VW+t[0]]=1;parkedSleigh.position.set(t[0],gH(t[0],t[1]),t[1]);parkedSleigh.visible=true;}else parkedSleigh.visible=false;}
 function canLand(m,x,y){if(!walkable(m,x,y)||m.doors[x+','+y])return false;if(m.items.some(it=>it.x===x&&it.y===y&&it.model.visible))return false;return!!m.reach[y*VW+x]||regionAt(x,y)==='grove';}
-function startFlight(){
+function startFlight(){if(riding())parkSled(player.x,player.y);
   const m=maps.village,[sx,sy]=S.sleighAt;flight.on=true;flight.phase='up';flight.t=0;flight.g0=null;flight.x=sx;flight.z=sy;flight.y=0;flight.vx=0;flight.vz=0;flight.head=Math.PI/2;
   placeSleigh(null);flySleigh.visible=true;flySleigh.add(player.model);player.model.position.copy(flySleigh.userData.seat);player.model.rotation.set(0,0,0);player.model.scale.setScalar(.8);
   player.model.userData.legs.forEach(l=>l.rotation.x=-1.2);
@@ -1540,6 +1543,7 @@ function renderMap(){
   for(const h of HOUSES){x.font=`bold ${s*.75}px "Press Start 2P",monospace`;x.lineWidth=3;x.strokeStyle='#fff';const cx=(h.x+h.w/2)*s,cy=(h.y-.7)*s;x.strokeText(hl[h.key],cx,cy);x.fillStyle='#1c2433';x.fillText(hl[h.key],cx,cy);}
   const dot=(tx,ty,col,sq,r=.45)=>{x.fillStyle=col;x.strokeStyle='#1c2433';x.lineWidth=2;x.beginPath();if(sq)x.rect((tx+.5-r)*s,(ty+.5-r)*s,r*2*s,r*2*s);else x.arc((tx+.5)*s,(ty+.5)*s,r*s,0,7);x.fill();x.stroke();};
   for(const it of m.items)if(it.type!=='coin'&&itemVisible(it))dot(it.x,it.y,'#ff9a2a',true,.45);
+  if(S.sledAt&&S.gear&&S.gear.snowmobile)dot(S.sledAt[0],S.sledAt[1],'#e8243a',false,.7);
   if(S.q.carols.st===1)for(const h of HOUSES)if(CAROL_HOUSES.includes(h.key)&&!S.sung[h.key])dot(h.doorX,h.doorY,'#ff9a2a',true,.45);
   if(S.q.sparkles.st===1)for(const sp of sparkleObjs)if(!S.collected['sp'+sp.i])dot(sp.x,sp.z,'#ffe08a',false,.6);
   if(S.sleighAt){x.fillStyle='#c8282e';x.fillRect((S.sleighAt[0]-.2)*s,(S.sleighAt[1]+.1)*s,s*1.4,s*.8);}
@@ -1613,7 +1617,7 @@ let started=false;
 const endOpen=()=>$('ending').style.display==='grid';
 function pressA(){if(!started)return;ac();if(choiceOpen){choicePick();return;}if(MG.on){MG.pressA();return;}if(endOpen()){$('ending').style.display='none';return;}if(choiceOpen){choicePick();return;}if(menuOpen){if(menuOpen!=='shop'&&menuOpen!=='bag')closeAll();return;}if(dlg.open){advance();return;}
   if(player.ride){endRide();return;}if(flight.on){landFlight();return;}if(!busy&&!player.moving&&!player.act)interact();}
-function pressB(){if(!started)return;if(choiceOpen){choiceCancel();return;}if(MG.on){MG.pressB();return;}if(endOpen()){$('ending').style.display='none';return;}if(choiceOpen){choiceCancel();return;}if(dlg.open){advance();return;}menuOpen?closeAll():openMenu('quests');}
+function pressB(){if(!started)return;if(choiceOpen){choiceCancel();return;}if(MG.on){MG.pressB();return;}if(riding()&&!dlg.open&&!menuOpen&&!busy&&!player.moving&&!endOpen()){getOffSled();return;}if(endOpen()){$('ending').style.display='none';return;}if(choiceOpen){choiceCancel();return;}if(dlg.open){advance();return;}menuOpen?closeAll():openMenu('quests');}
 const dp=$('dpad');
 function dpadRead(e){const r=dp.getBoundingClientRect(),x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2,l=Math.hypot(x,y);if(l<10){touchDir=null;touchVec=null;return;}
   touchDir=Math.abs(x)>Math.abs(y)?(x>0?'right':'left'):(y>0?'down':'up');touchVec=[x/l,y/l];}
@@ -2052,13 +2056,14 @@ function renderBag(){
   if(S.q.cookies.st===1&&!S.cookiesDelivered)items.push('<div class="bagrow"><span class="big">🍪</span><span>Cookies for Flurry</span></div>');
   if(S.q.gifts.st===1)items.push(`<div class="bagrow"><span class="big">🛍</span><span>Gift bag: <b>${TOTAL_GIFTS-giftCount()} gifts left</b></span></div>`);
   if(S.sleigh)items.push('<div class="bagrow"><span class="big">🛷</span><span>Santa\'s sleigh key (fly at night!)</span></div>');
-  for(const k in GEAR_INFO)if(S.gear&&S.gear[k])items.push(`<div class="bagrow"><span class="big">${GEAR_INFO[k].icon}</span><span>${GEAR_INFO[k].name} (tap GO)</span></div>`);
+  if(S.gear&&S.gear.snowmobile)items.push(`<div class="bagrow"><span class="big">🛷</span><span>Snowmobile ${riding()?'(you are riding it!)':'(parked outside)'}</span></div>`);
+  if(S.gear&&S.gear.xcskis)items.push(`<div class="bagrow"><span class="big">🎿</span><span>Cross-country skis</span><button class="btn mini primary" id="skiToggle" style="margin-left:auto">${S.gearOn==='xcskis'?'TAKE OFF':'PUT ON'}</button></div>`);
   const cs=Object.entries(CANDIES).filter(([k])=>S.candy&&S.candy[k]>0);if(cs.length){h+='<h3>🍬 CANDY (eat to go fast!)</h3>'+cs.map(([k,c])=>`<div class="bagrow"><span class="big">${c.i}</span><span>${c.n}: <b>${S.candy[k]}</b></span><button class="btn mini primary" data-eat="${k}" style="margin-left:auto">EAT</button></div>`).join('');}
   h+='<h3>THINGS YOU HAVE</h3>'+(items.length?items.join(''):'<div class="bagrow">Nothing yet. Go help your friends!</div>');
   h+='<h3>👕 YOUR CLOTHES</h3>';
   for(const cat in CLOTHES){const own=CLOTHES[cat].filter(c=>owns(cat,c));h+=`<div class="catlbl">${CAT_NAMES[cat]}</div><div class="clothes">`+own.map(c=>clothBtn(cat,c,false)).join('')+'</div>';}
   h+='<div class="qrow"><button class="btn primary" id="bagClose">CLOSE</button></div>';
-  $('bagBox').innerHTML=h;$('bagClose').onclick=closeAll;$('bagBox').querySelectorAll('[data-eat]').forEach(b=>b.onclick=()=>eatCandy(b.dataset.eat));bindCloth($('bagBox'),renderBag);
+  $('bagBox').innerHTML=h;$('bagClose').onclick=closeAll;{const st=$('skiToggle');if(st)st.onclick=()=>{if(riding()){toast('Get off the snowmobile first!');return;}S.gearOn=S.gearOn==='xcskis'?'':'xcskis';save();renderBag();toast(S.gearOn?'Skis on! Swoosh!':'Skis off.');};}$('bagBox').querySelectorAll('[data-eat]').forEach(b=>b.onclick=()=>eatCandy(b.dataset.eat));bindCloth($('bagBox'),renderBag);
 }
 function swatch(c){if(!c)return'<span class="sw" style="background:repeating-linear-gradient(45deg,#ddd 0 4px,#fff 4px 8px)"></span>';if(c==='gold')c='#f2c443';return`<span class="sw" style="background:${c}"></span>`;}
 function clothBtn(cat,c,shop){const wearing=S.outfit[cat]===c.id,own=owns(cat,c);
@@ -2176,7 +2181,7 @@ function goHome(){
 
 /* ============================== MINI GAMES ============================== */
 const MG={on:false,kind:'',scene:null,cam:new T.PerspectiveCamera(50,1,.1,300),score:0,time:0,ret:null,
-  start(kind){this.kind=kind;this.on=true;this.world=true;this.score=0;this.ended=false;this.ret={map:curMap.name,x:player.x,y:player.y,dir:player.dir};
+  start(kind){if(riding())parkSled(player.x,player.y);this.kind=kind;this.on=true;this.world=true;this.score=0;this.ended=false;this.ret={map:curMap.name,x:player.x,y:player.y,dir:player.dir};
     this.cam.aspect=camera.aspect;this.cam.updateProjectionMatrix();
     if(kind==='skate')SKATE.init();else SKI.init();
     $('hud').style.display='none';$('banner').classList.remove('show');$('toast').classList.remove('show');$('mgHud').style.display='flex';$('mgEnd').style.display='none';
@@ -2366,22 +2371,32 @@ function applySave(s){
   const m=maps[S.map]||maps.village;
   const v=maps.village;if(!S.sleighAt||!(v.reach[S.sleighAt[1]*VW+S.sleighAt[0]]||regionAt(S.sleighAt[0],S.sleighAt[1])==='grove'))S.sleighAt=SLEIGH_PAD.slice();
   if(walkable(m,S.x,S.y)&&!(m===v&&S.sleighAt[0]===S.x&&S.sleighAt[1]===S.y))setMap(m,S.x,S.y,S.dir||'down');else setMap(maps[START.map],START.x,START.y,START.dir);
-  updateWorld();applyTime();refreshGearBtn();
+  if(S.gear&&S.gear.snowmobile&&!S.sledAt&&S.gearOn!=='snowmobile')S.sledAt=[TOWN_START[0]+1,TOWN_START[1]];
+  if(riding()&&curMap!==maps.village){S.gearOn='';S.sledAt=[TOWN_START[0]+1,TOWN_START[1]];}
+  updateSledModel();updateWorld();applyTime();
 }
 $('viewBtn').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();toggleSkiView();});
 addEventListener('keydown',e=>{if(e.code==='KeyV'&&MG.on&&MG.kind==='ski')toggleSkiView();});
 /* ============================== GEAR: snowmobile + cross-country skis ============================== */
 const GEAR_INFO={snowmobile:{icon:'🛷',name:'Snowmobile',spd:2.8},xcskis:{icon:'🎿',name:'Cross-country skis',spd:2}};
 let gearObj=null,gearKind='';
-function gearActive(){const k=S.gearOn||'';return(k&&!swimming&&S.gear&&S.gear[k]&&curMap&&curMap.outdoor&&!MG.on&&!flight.on&&!player.ride)?k:'';}
+function gearActive(){const k=S.gearOn||'';return(k&&!swimming&&(k!=='snowmobile'||!S.sledAt)&&S.gear&&S.gear[k]&&curMap&&curMap.outdoor&&!MG.on&&!flight.on&&!player.ride)?k:'';}
 function gearSpeed(){if(swimming)return .62;const k=gearActive();return k?GEAR_INFO[k].spd:(buffT>0&&curMap&&!MG.on?1.8:1);}
-function gotGear(k){S.gear=S.gear||{};S.gear[k]=true;S.gearOn=k;save();refreshGearBtn();
-  say(k==='snowmobile'?["WOW! You found a SNOWMOBILE!","It goes very, very fast. Vroom!","Tap GO to drive it or to walk."]:["You found SKIS!","Now you can ski all over town.","You go 2 times as fast!","Tap GO to put them on or take them off."]);}
-function refreshGearBtn(){const b=$('gearBtn');if(b)b.style.display=(S.gear&&(S.gear.snowmobile||S.gear.xcskis))?'':'none';}
-function openGear(){if(!curMap.outdoor){toast('Use it outside!');return;}
-  const o=[{label:'🚶 Walk',fn:()=>{S.gearOn='';save();}}];
-  for(const k in GEAR_INFO)if(S.gear&&S.gear[k])o.push({label:GEAR_INFO[k].icon+' '+GEAR_INFO[k].name,fn:()=>{S.gearOn=k;save();if(k==='snowmobile')[196,247,294].forEach((f,i)=>tone(f,.12,'sawtooth',.03,i*.06));}});
-  choice('How do you want to go?',o);}
+function gotGear(k){S.gear=S.gear||{};S.gear[k]=true;S.gearOn=k;save();
+  say(["You found SKIS!","Now you can ski all over town.","You go 2 times as fast!","Open your BAG to take them off or put them on."]);}
+function refreshGearBtn(){}
+function riding(){return S.gearOn==='snowmobile';}
+function getOnSled(){const first=!(S.gear&&S.gear.snowmobile);S.gear=S.gear||{};S.gear.snowmobile=true;
+  const [x,y]=S.sledAt;S.sledAt=null;S.gearOn='snowmobile';updateSledModel();setMap(maps.village,x,y,player.dir);save();
+  [196,247,294].forEach((f,i)=>tone(f,.12,'sawtooth',.03,i*.06));
+  if(first)say(["WOW! You found a SNOWMOBILE!","It goes very fast. Vroom!",isTouch?"Press B to get off.":"Press X to get off."]);else toast(isTouch?'Vroom! Press B to get off.':'Vroom! Press X to get off.');}
+function parkSled(x,y){S.gearOn='';S.sledAt=[x,y];S.sledRot=player.rot;updateSledModel();save();}
+function getOffSled(){const [fx,fy]=DIRS[player.dir],order=[[fy,-fx],[-fy,fx],[fx,fy],[-fx,-fy]];const sx=player.x,sy=player.y;
+  for(const [dx,dy] of order){const nx=sx+dx,ny=sy+dy;if(walkable(maps.village,nx,ny)&&maps.village.tiles[ny*VW+nx]!==11&&!maps.village.doors[nx+','+ny]){parkSled(sx,sy);setMap(maps.village,nx,ny,player.dir);sfx.blip();return;}}
+  toast('No room to get off here!');}
+let sledModel=null;
+function updateSledModel(){const sc=maps.village.scene;if(!sledModel){sledModel=makeSnowmobile();sledModel.scale.setScalar(1.2);sledModel.userData.dyn=true;sc.add(sledModel);}
+  sledModel.visible=!!S.sledAt;if(S.sledAt){const [x,y]=S.sledAt;sledModel.position.set(x,gH(x,y),y);sledModel.rotation.y=S.sledRot||0;}}
 function updateGearVis(){const k=gearActive();
   const attached=!gearObj||!gearObj.length||(gearKind==='snowmobile'?gearObj[0].parent===player.model:player.model.userData.legs.includes(gearObj[0].parent));
   if(k!==gearKind||!attached){
@@ -2392,7 +2407,6 @@ function updateGearVis(){const k=gearActive();
 function gearPose(dt){const k=gearActive();if(!k)return;const u=player.model.userData;
   if(k==='snowmobile'){u.legs.forEach(l=>l.rotation.x=-1.3);u.arms.forEach((a,i)=>{a.rotation.x=-1.1;a.rotation.z=(i?-1:1)*.15;});player.model.rotation.x=player.moving?-.04:0;}
   else if(player.moving){const w=Math.sin(time*9);u.legs.forEach((l,i)=>l.rotation.x=(i?w:-w)*.45);u.arms.forEach((a,i)=>a.rotation.x=(i?-w:w)*.7);}}
-$('gearBtn').onclick=()=>{if(!started||dlg.open||MG.on||flight.on)return;openGear();};
 
 /* ============================== ICE CREAM + CANDY ============================== */
 const FLAVORS=[['straw','Strawberry','#ffb8d8'],['choc','Chocolate','#8a4a2a'],['mint','Mint Chip','#a8f0c8'],['rainbow','Rainbow','#ffd23a']];
@@ -2439,6 +2453,7 @@ function updateSwim(dt){const p=player.model,pp=p.position,u=p.userData;
 /* ============================== BOOT ============================== */
 buildTerrainGrid();buildVillage();for(const k in INTERIORS)buildInterior(k);
 for(const k in maps)bakeStatic(maps[k].scene,maps[k].outdoor?16:0);
+updateSledModel();
 setMap(maps[START.map],START.x,START.y,START.dir);$('banner').classList.remove('show');
 updateWorld();applyTime();
 if(loadSave())$('btnCont').style.display='block';
@@ -2447,7 +2462,7 @@ function begin(){started=true;$('title').style.display='none';ac();music.start()
 function newGame(){
   if(MG.on)MG.exit(true);
   if(flight.on){flight.on=false;flySleigh.visible=false;}player.ride=null;player.act=null;
-  S=freshState();try{localStorage.removeItem(SAVE_KEY);}catch(e){}refreshGearBtn();
+  S=freshState();try{localStorage.removeItem(SAVE_KEY);}catch(e){}updateSledModel();
   placeSleigh(SLEIGH_PAD.slice());setMap(maps[START.map],START.x,START.y,START.dir);updateWorld();applyTime();save();
   setTimeout(()=>say(["Good morning, Pip!","You are a little elf.","You live in Jingle Hollow.",isTouch?"Use the arrows to walk. Press A to talk. Press B to see your quests.":"Use the arrow keys to walk. Press SPACE to talk. Press X to see your quests.","Look at your BAG to see your things and clothes.","Go outside. Find Mayor Holly by the big tree."]),300);
 }
