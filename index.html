@@ -511,6 +511,7 @@ function loadSave(){try{const s=localStorage.getItem(SAVE_KEY);return s?JSON.par
 
 /* ============================== RENDERER ============================== */
 const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();try{save();}catch(_){}const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:#cfe2f6;font:16px sans-serif;text-align:center';d.innerHTML='<div><b>Oops! The game needs a rest.</b><br><br>Your game is saved.<br><br><button style="font-size:18px;padding:10px 20px">Tap to play again</button></div>';d.onclick=()=>location.reload();document.body.appendChild(d);});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.NoToneMapping;
 $('game').appendChild(renderer.domElement);
@@ -1346,10 +1347,11 @@ function onArrive(){
   if(curMap.outdoor){const r=regionAt(player.x,player.y);if(r!==region){region=r;banner(REGION_NAMES[r]);}}
   return false;
 }
-function itemVisible(it){if(S.collected[it.id])return false;if(it.type==='coin'||it.q==='gear')return true;if(!it.q)return false;if(it.q==='star')return S.q.star.st===1&&!S.hasStar;return S.q[it.q].st===1;}
+const COIN_REGEN=120000;
+function itemVisible(it){if(it.type==='coin'&&S.collected[it.id]){const t=(S.coinAt||{})[it.id]||0;if(Date.now()-t>COIN_REGEN){delete S.collected[it.id];return true;}return false;}if(S.collected[it.id])return false;if(it.type==='coin'||it.q==='gear')return true;if(!it.q)return false;if(it.q==='star')return S.q.star.st===1&&!S.hasStar;return S.q[it.q].st===1;}
 function pickup(it){
   S.collected[it.id]=true;it.model.visible=false;
-  if(it.type==='coin'){S.coins=(S.coins||0)+2;tone(1568,.08,'square',.03);tone(2093,.12,'square',.03,.06);toast(`+2 coins (${S.coins})`);save();return;}
+  if(it.type==='coin'){S.coinAt=S.coinAt||{};S.coinAt[it.id]=Date.now();S.coins=(S.coins||0)+3;tone(1568,.08,'square',.03);tone(2093,.12,'square',.03,.06);toast(`+3 coins (${S.coins})`);save();return;}
   sfx.pick();doAct('cheer');
   if(it.q==='gear'){gotGear(it.type);return;}
   if(it.type==='star'){S.hasStar=true;save();say(["You found the CHRISTMAS STAR!","It is warm and bright.","Take it to the big tree in town!"]);return;}
@@ -2369,7 +2371,7 @@ function applySave(s){
 $('viewBtn').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();toggleSkiView();});
 addEventListener('keydown',e=>{if(e.code==='KeyV'&&MG.on&&MG.kind==='ski')toggleSkiView();});
 /* ============================== GEAR: snowmobile + cross-country skis ============================== */
-const GEAR_INFO={snowmobile:{icon:'🛷',name:'Snowmobile',spd:3.4},xcskis:{icon:'🎿',name:'Cross-country skis',spd:2}};
+const GEAR_INFO={snowmobile:{icon:'🛷',name:'Snowmobile',spd:2.8},xcskis:{icon:'🎿',name:'Cross-country skis',spd:2}};
 let gearObj=null,gearKind='';
 function gearActive(){const k=S.gearOn||'';return(k&&!swimming&&S.gear&&S.gear[k]&&curMap&&curMap.outdoor&&!MG.on&&!flight.on&&!player.ride)?k:'';}
 function gearSpeed(){if(swimming)return .62;const k=gearActive();return k?GEAR_INFO[k].spd:(buffT>0&&curMap&&!MG.on?1.8:1);}
@@ -2381,7 +2383,8 @@ function openGear(){if(!curMap.outdoor){toast('Use it outside!');return;}
   for(const k in GEAR_INFO)if(S.gear&&S.gear[k])o.push({label:GEAR_INFO[k].icon+' '+GEAR_INFO[k].name,fn:()=>{S.gearOn=k;save();if(k==='snowmobile')[196,247,294].forEach((f,i)=>tone(f,.12,'sawtooth',.03,i*.06));}});
   choice('How do you want to go?',o);}
 function updateGearVis(){const k=gearActive();
-  if(k!==gearKind||(gearObj&&gearObj.parent!==player.model)){
+  const attached=!gearObj||!gearObj.length||(gearKind==='snowmobile'?gearObj[0].parent===player.model:player.model.userData.legs.includes(gearObj[0].parent));
+  if(k!==gearKind||!attached){
     if(gearObj){gearObj.forEach(o=>o.parent&&o.parent.remove(o));}gearObj=null;gearKind=k;
     if(k==='snowmobile'){const s=makeSnowmobile();s.position.y=-.3;s.scale.setScalar(1.2);player.model.add(s);gearObj=[s];}
     else if(k==='xcskis'){const u=player.model.userData;gearObj=[];u.legs.forEach(l=>gearObj.push(add(l,BOX(.07,.03,1.1),M('#3a8ad8'),0,-.31,.1,false)));u.arms.forEach(a=>gearObj.push(add(a,CYL(.012,.012,.8,4),M('#c8ccd6'),0,-.35,0,false)));}
